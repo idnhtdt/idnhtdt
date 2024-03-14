@@ -1,0 +1,96 @@
+import re
+import numpy as np
+import os
+from jieba import lcut
+from gensim.similarities import SparseMatrixSimilarity
+from gensim.corpora import Dictionary
+from gensim.models import TfidfModel
+
+
+def progress(path):  # 导入文件的内容
+    path = path.strip('"')  # 去除引号
+    if not os.path.exists(path):
+        raise FileNotFoundError("文件不存在: {}".format(path))
+    with open(path, 'r', encoding='UTF-8') as fp:
+        text = fp.read()
+    return text
+
+
+def prepare(text):  # 切割并清除标点符号
+    setting = []
+    for item in lcut(text):
+        if re.match(u"[a-zA-Z0-9\u4e00-\u9fa5]", item):
+            setting.append(item)
+    return setting
+
+
+def jaccard(word_a, word_b):
+    word_a = set(word_a)  # 去除重复项
+    word_b = set(word_b)
+    full = word_a | word_b
+    over = word_a & word_b
+    per = float(len(over)/len(full))
+    return per
+
+
+def cos_distance(word_a, word_b):
+    word_a = set(word_a)
+    word_b = set(word_b)
+    full = word_a | word_b
+    vec1 = []
+    vec2 = []
+    for item in full:
+        if item in word_a:
+            vec1.append(1)
+        else:
+            vec1.append(0)
+    for item in full:
+        if item in word_b:
+            vec2.append(1)
+        else:
+            vec2.append(0)
+    vec1 = np.array(vec1)
+    vec2 = np.array(vec2)
+
+    cos_sim = np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
+    return cos_sim
+
+
+def cos_gesim(base, cmp):  # 借鉴网上的方法
+    texts = [base, '']
+    keyword = cmp
+    texts = [lcut(text) for text in texts]  # 划分词 （原本尝试在progress后在输入函数，但tfidf模型产生不出向量集）
+    dictionary = Dictionary(texts)  # 创立原文字典对应语料库
+    corpus = [dictionary.doc2bow(text) for text in texts]
+    new_vec = dictionary.doc2bow(lcut(keyword))  # 创建对比文字典对应语料库
+    num_features = len(dictionary.token2id)  # 计算原文字典关键词数
+    tfidf = TfidfModel(corpus)  # 导入tfidf计算每个词的重要程度
+    index = SparseMatrixSimilarity(tfidf[corpus], num_features)  # 相似度计算
+    sim = index[tfidf[new_vec]]
+    return sim[0]
+
+
+if __name__ == '__main__':
+    file1_path = input("原文地址:")
+    file2_path = input("对比文地址:")
+    out_text_path = input("输出地址:")
+
+    # 获取文件内容
+    text1 = progress(file1_path)
+    text2 = progress(file2_path)
+
+    # 去除输出地址中的引号
+    out_text_path = out_text_path.strip('"')
+
+    with open(out_text_path, 'a', encoding='UTF-8') as f:
+        top = "%s和%s的对比\n" % (file1_path, file2_path)
+        f.write(top)
+
+        # 计算相似度并写入文件
+        percent = cos_gesim(text1, text2)
+        f.write("gesim所得的相似度: %.2f"%percent+ "\n")
+
+        text1 = prepare(text1)
+        text2 = prepare(text2)
+        f.write("jaccard所得相似度: %.2f"%jaccard(text1, text2) + "\n")
+        f.write("cos_distance所得的相似度:%.2f "%cos_distance(text1, text2) + "\n")
